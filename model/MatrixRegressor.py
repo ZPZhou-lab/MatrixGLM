@@ -1,11 +1,11 @@
 from typing import Optional, Union
 import numpy as np
 from sklearn.metrics import mean_squared_error, max_error, mean_absolute_error
-from .MatrixRegBase import MatRegBase
+from .MatrixGLMBase import MatrixGLMBase
 from .utils import batch_mat_prod
             
 # Regressor for regression problem
-class MatrixRegressor(MatRegBase):
+class MatrixRegressor(MatrixGLMBase):
     # init constructor
     def __init__(self, 
                 _lambda: Optional[float] = 1, 

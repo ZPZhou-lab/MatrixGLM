@@ -4,7 +4,7 @@ from sklearn.base import BaseEstimator
 from sklearn.model_selection import GroupKFold, StratifiedKFold
 from .MatrixClassifier import MatrixClassifier
 from .MatrixRegressor import MatrixRegressor
-from .MatrixRegBase import MatRegBase
+from .MatrixGLMBase import MatrixGLMBase
 from .utils import *
 
 class OracleTransReg(BaseEstimator):
@@ -140,8 +140,8 @@ class OracleTransReg(BaseEstimator):
                ya : Optional[List[np.ndarray]] = None,
                A : Optional[list] = None,
                lambda_min_ratio : Optional[float]=0.01,
-               lambda_max_ratio : Optional[float]=1,
-               num_grids : Optional[int]=10,
+               lambda_max_ratio : Optional[float]=5,
+               num_grids : Optional[int]=20,
                *args, **kwargs) -> None:
         """
         Select the optimal penalty coefficient through cross validation, and then fit the model.
@@ -161,10 +161,10 @@ class OracleTransReg(BaseEstimator):
         lambda_min_ratio : float, default = `0.01`
             Controal the `lower bound` of searched penalty coefficient,\n 
             the `lower bound` will set as `lambda_min_ratio * \sqrt{\log{p} / n}`.
-        lambda_max_ratio : float, default = `1`
+        lambda_max_ratio : float, default = `5`
             Controal the `upper bound` of searched penalty coefficient,\n 
             the `upper bound` will set as `lambda_max_ratio * \sqrt{\log{p} / n}`.
-        num_grids : int, default = `10`
+        num_grids : int, default = `20`
             Control the number of grids between the lower and upper bound.
         """
         # check dimension
@@ -250,6 +250,7 @@ class OracleTransReg(BaseEstimator):
                     else MatrixClassifier(_lambda=lambda_debias,penalty=self.penalty_debias,max_steps=self.max_steps)
                 models.append(model)
             # find best lambda
+            best_lambda_transfer = None
             best_lambda_debias = cross_valid_parallel(
                 models=models,params=lambda_debias_grid,
                 X=Xt,y=yt,transfer=False,**kwargs)
@@ -273,7 +274,7 @@ class OracleTransReg(BaseEstimator):
             self.estimator.n_class = len(self.estimator.classes)
         self.coef_ = beta.copy()
 
-        return self
+        return best_lambda_transfer, best_lambda_debias
 
     def predict(self, X : np.ndarray):
         return self.estimator.predict(X)

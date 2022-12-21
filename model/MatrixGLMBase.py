@@ -6,15 +6,15 @@ from sklearn.base import BaseEstimator
 from abc import abstractmethod
 from tqdm import tqdm
 from .utils import estimate_Lipschitz, BIC, cross_valid, batch_mat_prod
-from .utils import linear_nuclear_solver, linear_lasso_solver
+from . import solver
 
-class MatRegBase:
+class MatrixGLMBase:
     """
-    Base class for matrix regression method
+    Base class for matrix GLM method
     """
     def __init__(self, _lambda : Optional[float]=1.0, _delta : Union[float, str, None]='auto', 
                  penalty : Optional[str]="nuclear", loss : Optional[str]="square-error",
-                 max_steps : Optional[int]=100, max_steps_epoch : Optional[int]=20, eps : Optional[float]=1e-8) -> None:
+                 max_steps : Optional[int]=100, max_steps_epoch : Optional[int]=20, eps : Optional[float]=1e-4) -> None:
         """
         NesterovMatReg(self, _lambda : Optional[float]=1.0, _delta : Union[float, str, None]='auto', 
                        penalty : Optional[str]="nuclear", loss : Optional[str]="square-error",
@@ -82,26 +82,15 @@ class MatRegBase:
     # fit the model and use BIC to select optimal parameters
     def tuning(self, X : np.ndarray, y : np.ndarray, 
                transfer : Optional[bool]=False,
-               criterion : Optional[str]="BIC",
-               bound : Optional[list[float]]=[0,30], 
-               step : Optional[float]=1,
-               grid : Optional[list]=None,
+               lambda_min_ratio : Optional[float]=0.01,
+               lambda_max_ratio : Optional[float]=1,
+               num_grids : Optional[int]=10,
                folds : Optional[int]=5,
-               tau : Optional[float]=1.0, 
+               metric : Optional[str]=None,
                show : Optional[bool]=False, 
                *args, **kwargs) -> None:
         """
-        tuning(self, X : np.ndarray, y : np.ndarray, 
-               transfer : Optional[bool]=False,
-               criterion : Optional[str]="BIC",
-               bound : Optional[list[float]]=[0,30], 
-               step : Optional[float]=1,
-               grid : Optional[list]=None,
-               folds : Optional[int]=5,
-               tau : Optional[float]=1.0, 
-               show : Optional[bool]=False, 
-               *args, **kwargs) -> None
-            fit the model and use specified criterion to select optimal parameters
+        fit the model and use specified metric to select optimal parameters
         
         Parameters
         ----------
@@ -112,153 +101,67 @@ class MatRegBase:
         transfer : bool, optional
             Whether to use transfer learning to estimate `coef`\n
             Please call `set_transfer_coef()` first.
-        criterion : str, optional
-            Criterion to select optimal parameters, default is `"BIC"`\n
-            Classification task only supports `"cv"`
-        bound : list of float, optional
-            Upper bound and lower bound of the search grid for `lambda`, default is `[0, 30]`
-        step : float, optional
-            The search grid step, default is `1`
-        grid : list, optional
-            The search grid of `lambda`, default is `None`\n
-            If set, `bound` and `step` will be ignored
+        lambda_min_ratio : float, default = `0.01`
+            Controal the `lower bound` of searched penalty coefficient,\n 
+            the `lower bound` will set as `lambda_min_ratio * \sqrt{\log{p} / n}`.
+        lambda_max_ratio : float, default = `1`
+            Controal the `upper bound` of searched penalty coefficient,\n 
+            the `upper bound` will set as `lambda_max_ratio * \sqrt{\log{p} / n}`.
+        num_grids : int, default = `10`
+            Control the number of grids between the lower and upper bound.
         folds : int, optional
             The number of folds for cross validation criterion, default is `5`
-        tau : float, optional
-            The penalty parameter used in BIC estimation procedure when do `Ridge()`, default is `1.0`
+        metric : str, optional
+            The specified metric to select optimal parameters, default is `None`.\n
+            If `None`, use `mean_square_error()` for regression and `accuracy_score()` for classification.
         show : bool, optional
             Whether to plot the criterion curve, default is `False`        
         """
         # init search grid
-        if grid is None:
-            grid = np.arange(bound[0],bound[1],step)
+        n, p, q = X.shape[0], X.shape[1], X.shape[2]
+        grids = np.sqrt(np.log(p*q)/n) * np.linspace(lambda_min_ratio,lambda_max_ratio,num_grids,endpoint=True)
         
         # init
-        self._historyCriterion = {}
-
-        # dimension
-        N, P, Q = X.shape[0], X.shape[1], X.shape[2]
+        historyCriterion = {}
         
-        if self.task == "regression":
-            print("Estimate variance of noise...")
-            # Ridge estimate
-            ridge = Ridge(alpha=tau,fit_intercept=False,max_iter=10000)
-            ridge.fit(X.reshape(N,P*Q),y)
-            singular_lse = self.__SVD(ridge.coef_.reshape(P,Q))
-
-            # variance estimate
-            lasso = Lasso(alpha=0.01,fit_intercept=False,max_iter=10000) # Lasso(alpha=1,fit_intercept=False)
-            # lasso = LassoCV(cv=3,fit_intercept=False)
-            lasso.fit(X.reshape(N,P*Q),y)
-            err = lasso.predict(X.reshape(N,P*Q)) - y
-            var = np.var(err)
-
-            print("The estimated variance of noise is %.2f"%(var))
-        elif self.task == "classification":
-            # only support cross validation criterion
-            criterion = "cv"
-
+        if self.task == "classification":
             # number of classes
             if self.n_class is None:
                 self.classes = np.int_(np.unique(y))
                 self.n_class = len(self.classes)
 
-            # # Logistic Ridge
-            # lr_ridge = LogisticRegression(penalty="l2",C=1/tau,fit_intercept=False)
-            # lr_ridge.fit(X.reshape(N,P*Q),y)
-            # singular_lse = self.__SVD(lr_ridge.coef_.reshape(self.n_class,P,Q))
-
-            # # variace estimate
-            # lr_lasso = LogisticRegression(penalty="l1",C=0.1,fit_intercept=False,solver="liblinear")
-            # # lr_lasso = LogisticRegressionCV(penalty="l1",cv=3,fit_intercept=False,solver="liblinear",verbose=50,max_iter=100)
-            # lr_lasso.fit(X.reshape(N,P*Q),y)
-            # err = lr_lasso.predict(X.reshape(N,P*Q)) - y
-            # var = np.var(err)
-        
-        # show traning config
-        print("Using %s as criterion for %s task"%(criterion,self.task))
-
         # Setting initial delta one or two orders of magnitude larger than 1 / L
-        print("Estimate Lipschitz constant...")
-        delta = (1 / estimate_Lipschitz(X,self.task)) * 100
+        delta = (1 / estimate_Lipschitz(X,self.task)) * 1000
+        if self.task == "classification" and self.multi_class == "multinomial":
+            delta /= self.n_class
 
         # init best result
-        optim_lambda, optim_coef, optim_score = None, None, None
+        optim_lambda, optim_score = None, None
 
-        # init process bar
-        pbar = tqdm(total=len(grid),ncols=120)
-
-        # do grid search
-        for i,_lambda in enumerate(grid):
-            # update progress
-            pbar.update(1)
-            # show progress
-            if self.task == "classification" and self.n_class > 2:
-                if i == 0:
-                    rank = "unknown"
-                else:
-                    rank = 0
-                    for c in self.classes:
-                        rank += np.sum(self.singular_vals[c] > 0)
-                    rank /= self.n_class
-            else:
-                rank = np.sum(self.singular_vals > 0) if i > 0 else "unknown"
-            
-            pbar.set_description("Training for lambda = %.2f, Rank of the estimated coef : %s"%(_lambda, rank))
-
-            # set lambda and delta
-            self._lambda = _lambda
+        for lambda_ in grids:
+            self._lambda = lambda_
             self._delta = delta
 
-            # use BIC
-            if criterion == "BIC":
-                # optimization
-                self.fit(X,y,False,transfer,*args,**kwargs)
+            score = cross_valid(model=self,transfer=transfer,X=X,y=y,metric=metric,folds=folds,parallel=True)
+            historyCriterion[lambda_] = score
 
-                # compute BIC
-                y_pred = self.predict(X)
-                lambda_score = BIC(y,y_pred,var,_lambda,self.singular_vals,singular_lse,tau,P,Q)
-
-            # use cross-validation
-            elif criterion == "cv":
-                # cimpute cv score
-                lambda_score = cross_valid(X,y,folds,self)
-
-            # add history
-            self._historyCriterion[_lambda] = lambda_score
-
-            # update optim solution
-            if optim_score is None or lambda_score < optim_score:
-                optim_score = lambda_score
-                optim_coef = self.coef_
-                optim_lambda = self._lambda
-        
-        pbar.clear()
-        pbar.close()
-
-        # set best solution
-        self.coef_ = optim_coef
-        self._lambda = optim_lambda
-
-        print("Best penalty lambda is %.4f"%(self._lambda))
-
-        # for cross validation, we need train the model using full datasets
-        if criterion == "cv":
-            print("Training model with best parammeter using full datasets...")
-            self._delta = delta
-            self.fit(X,y,False,transfer,*args,**kwargs)
+            if optim_score is None or score < optim_score:
+                optim_score = score
+                optim_lambda = lambda_
 
         # plot criterion curve
         if show:
             fig = plt.figure(figsize=(6,4),dpi=80)
             plt.plot(
-                self._historyCriterion.keys(),
-                self._historyCriterion.values(),
+                historyCriterion.keys(),
+                historyCriterion.values(),
                 c='b',ls='--'
             )
             plt.xlabel("$\lambda$")
             plt.ylabel("Criterion")
             plt.title("Criterion Curve")
+        
+        return optim_lambda
 
     # optimization
     def fit(self, X : np.ndarray, y : np.ndarray, warm_up : Optional[bool]=False, 
@@ -284,11 +187,13 @@ class MatRegBase:
         assert(X.shape[0] == len(y))
         assert(len(X.shape) == 3)
 
+        # check whether transfer coef is provided
         if transfer:
             try:
                 assert(self.transfer_coef is not None)
             except:
                 raise AttributeError("The auxiliary coefficient of transfer learning has not been set, please call set_transfer_coef() first!")
+            # for regression problem, we only need to fit the residuals
             if self.task == "regression":
                 y = y - batch_mat_prod(X,self.transfer_coef)
             self.transfer = True
@@ -304,8 +209,7 @@ class MatRegBase:
             # reset
             self._delta = None
             # init coef
-            self.coef_pre = np.zeros((p,q)) # np.random.randn(p,q) * 0.1
-            self.coef_ = self.coef_pre.copy()
+            self.coef_ = np.zeros((p,q))
 
         # estimate delta  
         if self._delta is None:
@@ -314,12 +218,12 @@ class MatRegBase:
 
         if self.penalty_ == "nuclear":
             historyObj, singular_vals, step = \
-                linear_nuclear_solver(self,X,y,self._delta,self.max_steps,self.max_steps_epoch,self.eps)
+                solver.nuclear_solver(self,X,y,self._delta,self.max_steps,self.max_steps_epoch,self.eps)
             self._historyObj = historyObj.copy()
             self.singular_vals = singular_vals.copy()
             self._step = step
         elif self.penalty_ == "lasso":
-            linear_lasso_solver(self,X,y,self.max_steps,transfer=self.transfer)
+            solver.lasso_solver(self,X,y,self.max_steps,transfer=self.transfer)
     
     # predict
     @abstractmethod

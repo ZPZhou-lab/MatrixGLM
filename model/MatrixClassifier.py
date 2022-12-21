@@ -3,11 +3,12 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score
 from sklearn.preprocessing import OneHotEncoder
-from .MatrixRegBase import MatRegBase
+from .MatrixGLMBase import MatrixGLMBase
 from .utils import *
+from . import solver
 
 # Classifier for classification problem
-class MatrixClassifier(MatRegBase):
+class MatrixClassifier(MatrixGLMBase):
     # init constructor
     def __init__(self, 
                 _lambda: Optional[float] = 1, 
@@ -155,7 +156,7 @@ class MatrixClassifier(MatRegBase):
         if not warm_up:
             # reset
             self._delta = None
-            self.coef_, self.coef_pre = None, None
+            self.coef_ = None
             # init number of class
             self.n_class  = None
 
@@ -189,7 +190,7 @@ class MatrixClassifier(MatRegBase):
             # estimate delta
             if self._delta is None:
                 #  Setting initial delta one or two orders of magnitude larger than 1 / L
-                self._delta = (1 / estimate_Lipschitz(X, self.task)) * 1000
+                self._delta =  (1  / (self.n_class * estimate_Lipschitz(X, self.task))) * 1000
             
             # set dimension
             self.dim = X.shape[1:]
@@ -198,16 +199,15 @@ class MatrixClassifier(MatRegBase):
             # init beta
             if self.coef_ is None:
                 self.coef_ = np.zeros((self.n_class,p,q)) # np.random.randn(self.n_class,p,q) * 0.1
-                self.coef_pre = self.coef_.copy()
 
             if self.penalty_ == "nuclear":
                 historyObj, singular_vals, step = \
-                    multinomial_nuclear_solver(self,X,y,self._delta,self.max_steps,self.max_steps_epoch,self.eps)
+                    solver.multinomial_nuclear_solver(self,X,y,self._delta,self.max_steps,self.max_steps_epoch,self.eps)
                 self._historyObj = historyObj.copy()
                 self.singular_vals = singular_vals.copy()
                 self._step = step
             elif self.penalty_ == "lasso":
-                multinomial_lasso_solver(self,X,y,self.max_steps,transfer=self.transfer)
+                solver.multinomial_lasso_solver(self,X,y,self.max_steps,transfer=self.transfer)
 
     # compute penalty
     def penalty(self, coef: np.ndarray) -> float:
