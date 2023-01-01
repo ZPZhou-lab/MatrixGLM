@@ -130,6 +130,8 @@ class MatrixClassifier(MatrixGLMBase):
         y_pred = self.predict(X)
         if metric in ["accuracy","acc","accuracy_score"]:
             s = accuracy_score(y,y_pred)
+        elif metric in ["error_rate"]:
+            s = 1 - accuracy_score(y,y_pred)
         elif metric in ["auc","roc_auc"]:
             if self.multi_class == "multinomial" and len(y.shape) == 1:
                 y = OneHotEncoder().fit_transform(y)
@@ -141,6 +143,12 @@ class MatrixClassifier(MatrixGLMBase):
         elif metric in ["f1_score"]:
             method = "binary" if self.multi_class == "binary" else "micro"
             s = f1_score(y,y_pred,average=method)
+        elif metric == "loss":
+            if self.transfer:
+                logits = batch_mat_prod(X,self.coef_) + batch_mat_prod(X,self.transfer_coef)
+            else:
+                logits = batch_mat_prod(X,self.coef_)
+            s = self.loss(X,y,self.coef_,logits=logits)
         else:
             raise ValueError("Not supported for metric: %s"%(metric))
         return s

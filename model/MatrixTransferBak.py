@@ -7,23 +7,17 @@ from .MatrixRegressor import MatrixRegressor
 from .MatrixGLMBase import MatrixGLMBase
 from .utils import *
 
-def transfer_model(model,_lambda,**kwargs) -> Union[MatrixRegressor,MatrixClassifier]:
+def transfer_model(model,_lambda,**kwargs):
     if model.task == "regression":
         return MatrixRegressor(_lambda=_lambda,penalty=model.penalty_transfer,max_steps=model.max_steps,**kwargs)
     elif model.task == "classification":
         return MatrixClassifier(_lambda=_lambda,penalty=model.penalty_transfer,max_steps=model.max_steps,**kwargs)
 
-def debias_model(model,_lambda,**kwargs) -> Union[MatrixRegressor,MatrixClassifier]:
+def debias_model(model,_lambda,**kwargs):
     if model.task == "regression":
         return MatrixRegressor(_lambda=_lambda,penalty=model.penalty_debias,max_steps=model.max_steps,**kwargs)
     elif model.task == "classification":
         return MatrixClassifier(_lambda=_lambda,penalty=model.penalty_debias,max_steps=model.max_steps,**kwargs)
-
-def create_benchmark_model(model,_lambda,**kwargs) -> Union[MatrixRegressor,MatrixClassifier]:
-    if model.task == "regression":
-        return MatrixRegressor(_lambda=_lambda,penalty="lasso",max_steps=model.max_steps,**kwargs)
-    elif model.task == "classification":
-        return MatrixClassifier(_lambda=_lambda,penalty="lasso",max_steps=model.max_steps,**kwargs)
 
 class TransMatrixGLM(BaseEstimator):
     def __init__(self, task : str, verbose : Optional[bool]=False, 
@@ -36,7 +30,7 @@ class TransMatrixGLM(BaseEstimator):
         task : str
             The task type, can be one of `'regression'` or `'classification'`.
         verbose : bool, default = `False`
-            Whether to show the training imformation. 
+            Whether to show the training imformation.
         penalty_transfer : str, default = `'nuclear'`
             The penalty function for `transfer` step.
         penalty_debias : str, default = `'lasso'`
@@ -111,7 +105,6 @@ class TransMatrixGLM(BaseEstimator):
         # set parameters
         self.estimator.coef_ = beta.copy()
         if self.task == "classification":
-            
             self.estimator.multi_class = model.multi_class
             self.estimator.classes = np.int_(np.unique(yt))
             self.estimator.n_class = len(self.estimator.classes)
@@ -124,8 +117,8 @@ class TransMatrixGLM(BaseEstimator):
                Xa : Optional[List[np.ndarray]] = None,
                ya : Optional[List[np.ndarray]] = None,
                A : Optional[list] = None,
-               lambda_min_ratio : Optional[List[float]]=[0.01,0.01],
-               lambda_max_ratio : Optional[List[float]]=[5,5],
+               lambda_min_ratio : Optional[float]=0.01,
+               lambda_max_ratio : Optional[float]=5,
                num_grids : Optional[int]=20,
                *args, **kwargs) -> None:
         """
@@ -143,10 +136,10 @@ class TransMatrixGLM(BaseEstimator):
             Labels from `auxiliary` domain.
         A : list, default = `None`
             The imformative oracle auxiliary datasets index.
-        lambda_min_ratio : list of float, default = `[0.01,0.01]`
+        lambda_min_ratio : float, default = `0.01`
             Controal the `lower bound` of searched penalty coefficient,\n 
             the `lower bound` will set as `lambda_min_ratio * \sqrt{\log{p} / n}`.
-        lambda_max_ratio : list of float, default = `[5,5]`
+        lambda_max_ratio : float, default = `5`
             Controal the `upper bound` of searched penalty coefficient,\n 
             the `upper bound` will set as `lambda_max_ratio * \sqrt{\log{p} / n}`.
         num_grids : int, default = `20`
@@ -160,7 +153,9 @@ class TransMatrixGLM(BaseEstimator):
         n_auxiliary = 0 if A is None else len(A)
     
         lambda_debias_base = np.sqrt((np.log(p*q))/N_target)
-        lambda_debias_grid = lambda_debias_base * np.linspace(lambda_min_ratio[1],lambda_max_ratio[1],num_grids,endpoint=True)
+        lambda_debias_grid = np.hstack(
+            [lambda_debias_base * np.array([1e-4,5e-4,1e-3,5e-3,1e-2,5e-2,1e-1,1]),
+             lambda_debias_base * np.linspace(lambda_min_ratio,lambda_max_ratio,num_grids,endpoint=True)])
         
         if n_auxiliary > 0:
             # concat auxiliary data
@@ -173,14 +168,16 @@ class TransMatrixGLM(BaseEstimator):
             """
             # do grid search using cross validation
             lambda_transfer_base = np.sqrt((np.log(p*q))/N_source)
-            lambda_transfer_grid = lambda_transfer_base * np.linspace(lambda_min_ratio[0],lambda_max_ratio[0],num_grids,endpoint=True)
+            lambda_transfer_grid = np.hstack(
+                [lambda_transfer_base * np.array([1e-4,5e-4,1e-3,5e-3,1e-2,5e-2,1e-1,1]),
+                 lambda_transfer_base * np.linspace(lambda_min_ratio,lambda_max_ratio,num_grids,endpoint=True)])
             transfer_models = []
             for lambda_transfer in lambda_transfer_grid:
                 # build model
                 model = transfer_model(self,lambda_transfer)
                 transfer_models.append(model)
             # find best lambda
-            best_lambda_transfer, lambda_transfer_cv =\
+            best_lambda_transfer =\
                  cross_valid_parallel(models=transfer_models,params=lambda_transfer_grid,X=X_source,y=y_source,transfer=False,**kwargs)
 
             # build best model and training
@@ -200,7 +197,7 @@ class TransMatrixGLM(BaseEstimator):
                 model.set_transfer_coef(omega) # set tranfer coef
                 debias_models.append(model)
             # find best lambda
-            best_lambda_debias, lambda_debias_cv =\
+            best_lambda_debias =\
                  cross_valid_parallel(models=debias_models,params=lambda_debias_grid,X=Xt,y=yt,transfer=True,**kwargs)
 
             self.lambda_debias = best_lambda_debias
@@ -223,8 +220,7 @@ class TransMatrixGLM(BaseEstimator):
                 models.append(model)
             # find best lambda
             best_lambda_transfer = 0
-            lambda_transfer_cv = None
-            best_lambda_debias, lambda_debias_cv =\
+            best_lambda_debias =\
                  cross_valid_parallel(models=models,params=lambda_debias_grid,X=Xt,y=yt,transfer=False,**kwargs)
             
             # build model using best params
@@ -243,7 +239,7 @@ class TransMatrixGLM(BaseEstimator):
             self.estimator.n_class = len(self.estimator.classes)
         self.coef_ = beta.copy()
 
-        return best_lambda_transfer, best_lambda_debias, lambda_transfer_cv, lambda_debias_cv
+        return best_lambda_transfer, best_lambda_debias
     
     # fitting the model with unknown A
     def fit_unknown(self,
@@ -251,9 +247,6 @@ class TransMatrixGLM(BaseEstimator):
         Xa : List[np.ndarray],
         ya : List[np.ndarray],
         m : Optional[int]=3, C0 : Optional[float]=2,
-        benchmark_lambda : Optional[float]=1,
-        model_metric : Optional[str]=None,
-        fit : Optional[bool]=True,
         *args, **kwargs) -> None:
         """
         Fit the model with unknown A and with the specified penalcy coefficient.\n
@@ -272,32 +265,28 @@ class TransMatrixGLM(BaseEstimator):
             The number of folds for cross validation during detection.
         C0 : float, default = `2.0`
             The threshold for filtering source domain data.
-        benchmark_lambda : float, default = `1.0`
-            The penalty coef for benchmark model.
-        model_metric : str, default = `None`
-            The metric used for model selection.\n
-            If `None`, regression problem will use `'mse'` and  classification problem will use `'error_rate'`.
         """
         # number of sources
         K = len(Xa)
         benchmark_metrics, metrics = np.zeros(m), np.zeros((m,K))
-        model_metric = "mse" if self.task == "regression" else "error_rate"
         # detection
         spliter = KFold(n_splits=m) if self.task == "regression" else StratifiedKFold(n_splits=m)
         for fold, (train_idx, valid_idx) in enumerate(spliter.split(X=Xt,y=yt)):
             Xt_train, yt_train = Xt[train_idx], yt[train_idx]
             Xt_valid, yt_valid = Xt[valid_idx], yt[valid_idx]
             # fit Lasso for benchmark
-            benchmark_model = create_benchmark_model(model=self,_lambda=benchmark_lambda)
-            benchmark_model.fit(X=Xt_train,y=yt_train)
-            metric = benchmark_model.score(Xt_valid,yt_valid,metric=model_metric)
+            benchmark_model = TransMatrixGLM(
+                task=self.task,penalty_debias="lasso",lambda_debias=self.lambda_debias,
+                max_steps=self.max_steps)
+            benchmark_model.fit(Xt=Xt_train,yt=yt_train,A=None)
+            metric = benchmark_model.score(Xt_valid,yt_valid)
             benchmark_metrics[fold] = metric
 
             # iterating on different domains
             for k in range(K):
                 # do transfer step
-                model = self.transfer_step(Xt=Xt_train,yt=yt_train,Xa=[Xa[k]],ya=[ya[k]],A=[0])
-                metric = model.score(Xt_valid,yt_valid,metric=model_metric)
+                model = self.transfer_step(Xt=Xt_train,yt=yt_train,Xa=[Xa[k]],ya=ya[ya[0]],A=[0])
+                metric = model.score(Xt_valid,yt_valid)
                 metrics[fold,k] = metric
         
         # calculate the benchmark metric for lasso
@@ -310,10 +299,9 @@ class TransMatrixGLM(BaseEstimator):
         informative_A == None if informative_A == [] else informative_A
 
         # transfer learning
-        if fit:
-            self.fit(Xt=Xt,yt=yt,Xa=Xa,ya=ya,A=informative_A)
+        self.fit(Xt=Xt,yt=yt,Xa=Xa,ya=ya,A=informative_A)
 
-        return informative_A, metrics, benchmark_metrics
+        return informative_A
 
     def tuning_unknown():
         ...

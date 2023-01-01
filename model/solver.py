@@ -324,7 +324,7 @@ def lasso_solver(model, X : np.ndarray, y : np.ndarray, max_steps : int, transfe
         if model.task == "regression":
             lasso_model = Lasso(alpha=model._lambda,max_iter=max_steps,fit_intercept=False,warm_start=False)
         elif model.task == "classification":
-            lasso_model = LogisticRegression(penalty="l1",C=1/model._lambda,solver="saga",max_iter=max_steps,fit_intercept=False,warm_start=False)
+            lasso_model = LogisticRegression(penalty="l1",C=1/(X.shape[0]*model._lambda),solver="saga",max_iter=max_steps,fit_intercept=False,warm_start=False)
         # train
         lasso_model.fit(X=X,y=y)
         # fetch coef
@@ -442,14 +442,14 @@ def multinomial_lasso_solver(model, X : np.ndarray, y : np.ndarray, max_steps : 
     # when transfer we need set warm_start=True and debias coef
     if transfer:
         lasso_model = LogisticRegression(
-                penalty="l1",C=1/model._lambda,solver="saga",multi_class="multinomial",
+                penalty="l1",C=1/(X.shape[0]*model._lambda),solver="saga",multi_class="multinomial",
                 max_iter=max_steps,fit_intercept=False,warm_start=True)
         transfer_coef = model.transfer_coef.copy()
         transfer_coef = np.reshape(transfer_coef, (model.n_class,-1))
         lasso_model.coef_ = transfer_coef
     else:
         lasso_model = LogisticRegression(
-                penalty="l1",C=1/model._lambda,solver="saga",multi_class="multinomial",
+                penalty="l1",C=1/(X.shape[0]*model._lambda),solver="saga",multi_class="multinomial",
                 max_iter=max_steps,fit_intercept=False,warm_start=False)
 
     # train

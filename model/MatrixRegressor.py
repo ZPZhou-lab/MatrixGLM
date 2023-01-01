@@ -81,6 +81,8 @@ class MatrixRegressor(MatrixGLMBase):
             s = max_error(y,y_pred)
         elif metric in ["mae","mean_absolute_error"]:
             s = mean_absolute_error(y,y_pred)
+        elif metric == "loss":
+            s = self.loss(X,y,self.coef_)
         else:
             raise ValueError("Not supported for metric: %s"%(metric))
         return s

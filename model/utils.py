@@ -358,7 +358,8 @@ def cross_valid_parallel(models : list,
                          sub_parallel : Optional[bool]=False,
                          n_jobs : Optional[int]=10,
                          random_state : Optional[int]=0,
-                         greater_is_better : Optional[bool]=False):
+                         greater_is_better : Optional[bool]=False,
+                         top : int=1):
     """
     Using multiple processes for parallel cross validation to speed up.\n
     See also `cross_valid()`
@@ -387,6 +388,8 @@ def cross_valid_parallel(models : list,
         Random seed used for cross validation.
     greater_is_better : bool, default = `False`
         Determine whether the optimal objective function is maximized or minimized.
+    top : int, default = `1`
+        Select the mean value of the best parameter of `top` as the result.
     
     Return
     ----------
@@ -418,7 +421,10 @@ def cross_valid_parallel(models : list,
     scores = multi_task(func=metrics,param_list=param_list,n_job=n_jobs,verbose=0)
     scores = pd.DataFrame(scores)
     # find the best params
-    scores = scores.sort_values(by="score",ascending=greater_is_better)
-    best_param = scores.iloc[-1,0]
+    scores = scores.sort_values(by=["score","param"],ascending=[greater_is_better,True])
+    if top == 1:
+        best_param = scores.iloc[-1:,0].values[0]
+    else:
+        best_param = scores.iloc[-top::,0].mean()
     
-    return best_param
+    return best_param, scores

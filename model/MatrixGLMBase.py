@@ -223,6 +223,7 @@ class MatrixGLMBase:
             self.singular_vals = singular_vals.copy()
             self._step = step
         elif self.penalty_ == "lasso":
+            
             solver.lasso_solver(self,X,y,self.max_steps,transfer=self.transfer)
     
     # predict
