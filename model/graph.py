@@ -3,7 +3,7 @@ import numpy as np
 
 from .MatrixClassifier import MatrixClassifier
 from .MatrixRegressor import MatrixRegressor
-from .MatrixTransfer import OracleTransReg
+from .MatrixTransfer import TransMatrixGLM
 from .evaluation import Graph
 
 from pyriemann.estimation import Xdawn, XdawnCovariances
@@ -23,7 +23,7 @@ class LassoOnly(Graph):
     def __init__(self, name: str, transfer : str, **kwargs) -> None:
         super().__init__(name,transfer)
         # Lasso Classifier
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="lasso",**kwargs
         )
     
@@ -47,7 +47,7 @@ class NuclearOnly(Graph):
     def __init__(self, name: str, transfer : str, **kwargs) -> None:
         super().__init__(name,transfer)
         # Nuclear Classifier
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="nuclear",**kwargs
         )
     
@@ -71,7 +71,7 @@ class LassoNaive(Graph):
     def __init__(self, name: str, transfer : str, *args, **kwargs) -> None:
         super().__init__(name,transfer)
         # Lasso Classifier
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="lasso",**kwargs
         )
     
@@ -99,7 +99,7 @@ class NuclearNaive(Graph):
     def __init__(self, name: str, transfer : str, *args, **kwargs) -> None:
         super().__init__(name,transfer)
         # Nuclear Classifier
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="nuclear",**kwargs
         )
     
@@ -126,7 +126,7 @@ class NuclearNaive(Graph):
 class LassoLassoTransfer(Graph):
     def __init__(self, name: str, transfer : str, *args, **kwargs) -> None:
         super().__init__(name,transfer)
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="lasso",penalty_transfer="lasso",**kwargs
         )
     
@@ -148,7 +148,7 @@ class LassoLassoTransfer(Graph):
 class NuclearLassoTransfer(Graph):
     def __init__(self, name: str, transfer : str, *args, **kwargs) -> None:
         super().__init__(name,transfer)
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="lasso",penalty_transfer="nuclear",**kwargs
         )
     
@@ -170,7 +170,7 @@ class NuclearLassoTransfer(Graph):
 class NuclearNuclearTransfer(Graph):
     def __init__(self, name: str, transfer : str, *args, **kwargs) -> None:
         super().__init__(name,transfer)
-        self.estimator = OracleTransReg(
+        self.estimator = TransMatrixGLM(
             task="classification",penalty_debias="nuclear",penalty_transfer="nuclear",**kwargs
         )
     
